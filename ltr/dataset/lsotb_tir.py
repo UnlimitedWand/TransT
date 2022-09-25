@@ -9,10 +9,13 @@ from collections import OrderedDict
 from .base_video_dataset import BaseVideoDataset
 from ltr.data.image_loader import jpeg4py_loader
 from ltr.admin.environment import env_settings
+
 import ltr.admin.settings as ws_settings
+import xml.etree.ElementTree as et
 
 
-class Got10k(BaseVideoDataset):
+
+class LSOTB_TIR(BaseVideoDataset):
     """ GOT-10k dataset.
 
     Publication:
@@ -24,7 +27,7 @@ class Got10k(BaseVideoDataset):
     Download dataset from http://got-10k.aitestunion.com/downloads
     """
 
-    def __init__(self, root=None, image_loader=jpeg4py_loader, split=None, seq_ids=None, data_fraction=None):
+    def __init__(self, root=None, image_loader=jpeg4py_loader, is_train=True, split=None, seq_ids=None, data_fraction=None):
         """
         args:
             root - path to the got-10k training data. Note: This should point to the 'train' folder inside GOT-10k
@@ -38,8 +41,10 @@ class Got10k(BaseVideoDataset):
             data_fraction - Fraction of dataset to be used. The complete dataset is used by default
         """
         root = env_settings().got10k_dir if root is None else root
-        super().__init__('GOT10k', root, image_loader)
-
+        super().__init__('LSOTB_TIR', root, image_loader)
+        self.is_train = is_train
+        self.train_data_root = 'Training Dataset/LSOTB-TIR_TrainingData/TrainingData'
+        self.train_anno_root = 'Training Dataset/LSOTB-TIR_TrainingData/Annotations'
         # all folders inside the root
         self.sequence_list = self._get_sequence_list()
 
@@ -71,9 +76,12 @@ class Got10k(BaseVideoDataset):
 
         self.sequence_meta_info = self._load_meta_info()
         self.seq_per_class = self._build_seq_per_class()
+        self.sequence_meta_info = {}
+        self.seq_per_class = {}
 
         self.class_list = list(self.seq_per_class.keys())
         self.class_list.sort()
+        self.class_list = []
 
     def get_name(self):
         return 'toolkit'
@@ -85,7 +93,7 @@ class Got10k(BaseVideoDataset):
         return True
 
     def _load_meta_info(self):
-        sequence_meta_info = {s: self._read_meta(os.path.join(self.root, s)) for s in self.sequence_list}
+        sequence_meta_info = {s: self._read_meta(os.path.join(self.root, s[0])) for s in self.sequence_list}
         return sequence_meta_info
 
     def _read_meta(self, seq_path):
@@ -121,10 +129,25 @@ class Got10k(BaseVideoDataset):
         return self.seq_per_class[class_name]
 
     def _get_sequence_list(self):
-        with open(os.path.join(self.root, 'list.txt')) as f:
-            dir_list = list(csv.reader(f))
-        dir_list = [dir_name[0] for dir_name in dir_list]
-        return dir_list
+        # with open(os.path.join(self.root, 'list.txt')) as f:
+        #     dir_list = list(csv.reader(f))
+        # dir_list = [dir_name[0] for dir_name in dir_list]
+
+        if self.is_train:
+            train_dir = os.path.join(self.root, self.train_data_root)
+            subdirs_name = os.listdir(train_dir)
+            subdirs_name.sort()
+            sequences = []
+            annos = []
+            for dirname in subdirs_name:
+                img_subdir = os.path.join(self.train_data_root, dirname)
+                anno_subdir = os.path.join(self.train_anno_root, dirname)
+                real_subdir = os.path.join(self.root, img_subdir)
+                sequence_name = os.listdir(real_subdir)
+                sequence_name.sort()
+                sequences += [os.path.join(img_subdir, name) for name in sequence_name]
+                annos += [os.path.join(anno_subdir, name) for name in sequence_name]
+        return list(zip(sequences, annos))
 
     def _read_bb_anno(self, seq_path):
         bb_anno_file = os.path.join(seq_path, "groundtruth.txt")
@@ -134,12 +157,15 @@ class Got10k(BaseVideoDataset):
     def _read_target_visible(self, seq_path):
         # Read full occlusion and out_of_view
         occlusion_file = os.path.join(seq_path, "absence.label")
-        cover_file = os.path.join(seq_path, "cover.label")
+        # TODO cover file
+        # cover_file = os.path.join(seq_path, "cover.label")
 
         with open(occlusion_file, 'r', newline='') as f:
             occlusion = torch.ByteTensor([int(v[0]) for v in csv.reader(f)])
-        with open(cover_file, 'r', newline='') as f:
-            cover = torch.ByteTensor([int(v[0]) for v in csv.reader(f)])
+        # with open(cover_file, 'r', newline='') as f:
+        #     cover = torch.ByteTensor([int(v[0]) for v in csv.reader(f)])
+            cover = [8 for i in range(len(occlusion))]
+            cover = torch.ByteTensor(cover)
 
         target_visible = ~occlusion & (cover>0).byte()
 
@@ -147,16 +173,22 @@ class Got10k(BaseVideoDataset):
         return target_visible, visible_ratio
 
     def _get_sequence_path(self, seq_id):
-        return os.path.join(self.root, self.sequence_list[seq_id])
+        img_path = os.path.join(self.root, self.sequence_list[seq_id][0])
+        anno_path = os.path.join(self.root, self.sequence_list[seq_id][1])
+        return img_path, anno_path
 
     def get_sequence_info(self, seq_id):
-        seq_path = self._get_sequence_path(seq_id)
+        seq_path, anno_path = self._get_sequence_path(seq_id)
         bbox = self._read_bb_anno(seq_path)
-
         valid = (bbox[:, 2] > 0) & (bbox[:, 3] > 0)
         visible, visible_ratio = self._read_target_visible(seq_path)
         visible = visible & valid.byte()
 
+        # visible, visible_ratio = self._read_target_visible(seq_path)
+        # visible = visible & valid.byte()
+        # valid = [True for i in range(len(bbox))]
+        # visible = [1 for i in range(len(bbox))]
+        # visible_ratio = [1. for i in range(len(bbox))]
         return {'bbox': bbox, 'valid': valid, 'visible': visible, 'visible_ratio': visible_ratio}
 
     def _get_frame_path(self, seq_path, frame_id):
@@ -170,11 +202,37 @@ class Got10k(BaseVideoDataset):
 
         return obj_meta['object_class_name']
 
+    # def get_annos(self, seq_id, frame_ids, anno=None):
+    #     # anno is dictionary
+    #     if anno is None:
+    #         anno = self.get_sequence_info(seq_id)
+    #     anno_paths = anno['bbox']
+    #     anno_list = []
+    #     anno = {}
+    #     for f_id in frame_ids:
+    #         anno_path = os.path.join(self.root, anno_paths[f_id])
+    #         tree = et.parse(anno_path)
+    #         root = tree.getroot()
+    #         for obj in root.findall('object'):
+    #             trackid = obj.find('trackid').text
+    #             occluded = obj.find('occluded').text
+    #             bndbox = obj.find('bndbox')
+    #             x1 = bndbox.find('xmin').text
+    #             y1 = bndbox.find('ymin').text
+    #             x2 = bndbox.find('xmax').text
+    #             y2 = bndbox.find('ymax').text
+    #             bbox = [int(x1), int(y1), int(x2), int(y2)]
+    #             anno[trackid] = {'trackid': trackid, 'occluded': int(occluded), 'bndbox': bbox}
+    #         anno_list.append(anno)
+    #
+    #     return anno_list
+
     def get_frames(self, seq_id, frame_ids, anno=None):
         seq_path = self._get_sequence_path(seq_id)
-        obj_meta = self.sequence_meta_info[self.sequence_list[seq_id]]
+        # obj_meta = self.sequence_meta_info[self.sequence_list[seq_id]]
+        obj_meta = []
 
-        frame_list = [self._get_frame(seq_path, f_id) for f_id in frame_ids]
+        frame_list = [self._get_frame(seq_path[0], f_id) for f_id in frame_ids]
 
         if anno is None:
             anno = self.get_sequence_info(seq_id)
@@ -187,5 +245,20 @@ class Got10k(BaseVideoDataset):
 
 if __name__ == "__main__":
     settings = ws_settings.Settings()
-    got10k_train = Got10k(settings.env.got10k_dir)
-    got10k_train.get_frames(14, [0,1])
+    lsotbtir_train = LSOTB_TIR(settings.env.lsotbtir_dir)
+    for seq in lsotbtir_train.sequence_list:
+        realxmlpath = os.path.join(lsotbtir_train.root, seq[1])
+        realimgpath = os.path.join(lsotbtir_train.root, seq[0])
+        lsotbtir_train._read_bb_anno(realimgpath)
+    # frame_list, anno_frames, obj_meta = lsotbtir_train.get_frames(14, [0,1], ['0','1'])
+    # frame_list1, anno_frames1, obj_meta1 = lsotbtir_train.get_frames(14, [0], ['0'])
+    # bbox = [i for i in range(1,6)]
+    # valid = [i for i in range(6,11)]
+    # visible = [i for i in range(11,16)]
+    # visible_ratio = [i for i in range(16,21)]
+    # frame_ids = [2, 4]
+    # result = {}
+    # dic = {'bbox': bbox, 'valid': valid, 'visible': visible, 'visible_ratio': visible_ratio}
+    # for key, value in dic.items():
+    #     result[key] = [value[f_id] for f_id in frame_ids]
+    # print(len(seq), seqpath)

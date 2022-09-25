@@ -1,3 +1,4 @@
+import os
 import random
 import torch.utils.data
 from pytracking import TensorDict
@@ -115,20 +116,42 @@ class TrackingSampler(torch.utils.data.Dataset):
             if self.frame_sample_mode == 'interval':
                 # Sample frame numbers within interval defined by the first frame
                 while search_frame_ids is None:
-                    base_frame_id = self._sample_visible_ids(visible, num_ids=1)
-                    extra_template_frame_ids = self._sample_visible_ids(visible, num_ids=self.num_template_frames - 1,
-                                                                     min_id=base_frame_id[
-                                                                                0] - self.max_gap - gap_increase,
-                                                                     max_id=base_frame_id[
-                                                                                0] + self.max_gap + gap_increase)
-                    if extra_template_frame_ids is None:
-                        gap_increase += 5
-                        continue
-                    template_frame_ids = base_frame_id + extra_template_frame_ids
+                    template_frame_ids = self._sample_visible_ids(visible, num_ids=1)
+                    # extra_template_frame_ids = self._sample_visible_ids(visible, num_ids=self.num_template_frames - 1,
+                    #                                                  min_id=base_frame_id[
+                    #                                                             0] - self.max_gap - gap_increase,
+                    #                                                  max_id=base_frame_id[
+                    #                                                          0] + self.max_gap + gap_increase)
+                    # if extra_template_frame_ids is None:
+                    #     gap_increase += 5
+                    #     continue
+                    # template_frame_ids = base_frame_id + extra_template_frame_ids
+
+                    # TODO get trackid and get bbox
+                    # template_frame_anno_list = dataset.get_annos(seq_id, template_frame_ids, seq_info_dict)
+                    # template_track_id = []
+                    # found = False
+                    # for frame in template_frame_anno_list:
+                    #     for object_id, object_value in frame.items():
+                    #         if object_value['occluded'] == 0:
+                    #             found = True
+                    #             template_track_id.append(object_id)
+                    #             break
+                    # if found is False:
+                    #     continue
+
                     search_frame_ids = self._sample_visible_ids(visible, num_ids=self.num_search_frames,
                                                               min_id=template_frame_ids[0] - self.max_gap - gap_increase,
                                                               max_id=template_frame_ids[0] + self.max_gap + gap_increase)
+                    # search_frame_anno_list = dataset.get_annos(seq_id, search_frame_ids, seq_info_dict)
+                    # haskey = []
+                    # # print('template frame: {} object id:{}'.format(template_frame_ids[0], template_track_id[0]))
+                    # # print('search frame:   {} object id:{}'.format(search_frame_ids[0], template_track_id[0]))
+                    # for i, frame in enumerate(search_frame_anno_list):
+                    #     haskey.append((template_track_id[i] in frame))
+                    # # print(haskey)
                     gap_increase += 5  # Increase gap until a frame is found
+
 
             elif self.frame_sample_mode == 'causal':
                 # Sample search and template frames in a causal manner, i.e. search_frame_ids > template_frame_ids
@@ -152,8 +175,11 @@ class TrackingSampler(torch.utils.data.Dataset):
             template_frame_ids = [1] * self.num_template_frames
             search_frame_ids = [1] * self.num_search_frames
 
-        template_frames, template_anno, meta_obj_template = dataset.get_frames(seq_id, template_frame_ids, seq_info_dict)
-        search_frames, search_anno, meta_obj_search = dataset.get_frames(seq_id, search_frame_ids, seq_info_dict)
+
+        template_frames, template_anno, meta_obj_template = dataset.get_frames(seq_id, template_frame_ids,
+                                                                               seq_info_dict)
+        search_frames, search_anno, meta_obj_search = dataset.get_frames(seq_id, search_frame_ids,
+                                                                         seq_info_dict)
 
         data = TensorDict({'template_images': template_frames,
                            'template_anno': template_anno['bbox'],

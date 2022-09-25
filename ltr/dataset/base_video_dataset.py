@@ -91,13 +91,14 @@ class BaseVideoDataset(torch.utils.data.Dataset):
             """
         raise NotImplementedError
 
-    def get_frames(self, seq_id, frame_ids, anno=None):
+    def get_frames(self, seq_id, frame_ids, object_id=None, anno=None):
         """ Get a set of frames from a particular sequence
 
         args:
             seq_id      - index of sequence
             frame_ids   - a list of frame numbers
             anno(None)  - The annotation for the sequence (see get_sequence_info). If None, they will be loaded.
+            object_id(None) - For multi object dataset
 
         returns:
             list - List of frames corresponding to frame_ids
